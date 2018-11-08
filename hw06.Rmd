@@ -1,0 +1,239 @@
+---
+title: "Homework 06: Data wrangling wrap up"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    theme: united
+---
+
+```{r}
+# load required libraries
+suppressPackageStartupMessages(library(gapminder))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(repurrrsive))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(leaflet))
+suppressPackageStartupMessages(library(singer))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ggmap))
+```
+
+
+# Task 2: Writing functions
+In this part, as suggested by the instructor, I will follow the linear regreation function posted [here](http://stat545.com/block012_function-regress-lifeexp-on-year.html) and generalize the quadratic regression function.
+
+
+## 2.1 Compute the data on mini data frame corresponding to one country 
+```{r}
+j_country <- "China"
+j_dat <- gapminder %>% 
+  filter(country == j_country)
+# take a glance at filtered data frame
+knitr::kable(j_dat, align = 'c')
+```
+
+To do the quadratic regression, a square term is included. Always plot the data:
+```{r Part 2-1}
+p <- ggplot(j_dat, aes(x = year, y = lifeExp))
+p + 
+  geom_point() + 
+  # uses the I() function to protect the expression inside, I ensure it is interpreted in the obvious arithmetical way.
+  geom_smooth(method = "lm", formula = y ~ x + I(x^2)) + 
+  ggtitle("Quadratic regression of China's lifeExp over the years") + 
+  ylab("Life Expectancy") + 
+  theme_bw()
+```
+
+Fit the regression:
+```{r}
+j_fit <- lm(lifeExp ~ (year + I(year^2)), j_dat)
+coef(j_fit)
+```
+
+The interception basically tells the life expectancy of China at year 0 and the value is negative which doesn't make any sense. I think it makes more sense for the intercept to correspond to life expectancy in 1952, the earliest date in our dataset instead. Change the model:
+```{r Part 2-2}
+p <- ggplot(j_dat, aes(x = year, y = lifeExp))
+p + 
+  geom_point() + 
+  # uses the I() function to protect the expression inside, I ensure it is interpreted in the obvious arithmetical way.
+  geom_smooth(method = "lm", formula = y ~ I(x - 1952) + I(x^2 - 1952^2)) + 
+  ggtitle("Quadratic regression of China's lifeExp over the years modified") + 
+  ylab("Life Expectancy") + 
+  theme_bw()
+```
+
+Fit the regression:
+```{r}
+j_fit <- lm(lifeExp ~ I(year - 1952) + I(year^2 - 1952^2), data = j_dat)
+
+coef(j_fit)  # coefficients of the model
+```
+Now the interception is the life expectancy of China around year 1952 and it is 43.24.
+
+
+## 2.2 Turn working code into a function.
+Create le_quad_fit() to get the model coefficient given data frame as input:
+```{r}
+le_quad_fit <- function(dat, offset = 1952) {
+  the_fit <- lm(lifeExp ~ I(year - offset) + I(year ^ 2 - offset ^ 2), dat)
+  # set names on the return values
+  setNames(coef(the_fit), c("intercept", "slope", "quadratic"))
+}
+le_quad_fit(j_dat)
+```
+
+Also we can make le_quad_plot() function for quadratic plot into function with given data frame as input:
+```{r Part 2-3}
+le_quad_plot <- function(dat, offset = 1952, country) {
+  p <- ggplot(dat, aes(x = year, y = lifeExp))
+  p + 
+    geom_point() + 
+    # uses the I() function to protect the expression inside, I ensure it is interpreted in the obvious   arithmetical way.
+    geom_smooth(method = "lm", formula = y ~ I(x - 1952) + I(x^2 - 1952^2)) + 
+    ggtitle(paste("Quadratic regression of", country, "life expectancy over the years by function")) + 
+    ylab("Life Expectancy") + 
+    theme_bw()
+}
+le_quad_plot(j_dat, country = "China")
+```
+
+
+## 2.3 Test on other data
+Now we can use `le_quad_plot()` to plot the quadratic regression model of a certain country and `le_quad_fit()` to get the coefficients of model of certain country.
+
+Let's try with Japan:
+```{r Part 2-4}
+japan_data <- gapminder %>% filter(country == "Japan")
+le_quad_plot(japan_data, country = "Japan")
+le_quad_fit(japan_data)
+```
+
+More tests on India:
+
+```{r Part 2-5}
+india_data <- gapminder %>% filter(country == "India")
+le_quad_plot(india_data, country = "India")
+le_quad_fit(india_data)
+```
+
+for comparison, the linear regression model with india data is plotted: 
+```{r Part 2-6}
+india_data %>% 
+  ggplot(aes(year, lifeExp)) + 
+  geom_point() + 
+  geom_smooth(aes(color = "linear regression"), 
+              method = "lm", 
+              se = FALSE) +
+  geom_smooth(aes(color = "quadratic regression"), 
+              method = "lm", 
+              formula = y ~ I(x - 1952) + I(x^2 - 1952^2)) + 
+  ggtitle("Linear fitting of India's life expectancy vs year") + 
+  ylab("Life Expectancy") + 
+  theme_bw()
+```
+
+We can see that the quadratic model does a better job in fitting. Thus, our function of quadratic regression gains a better result than built-in linear regression fitting.
+
+
+# Task 4: Work with the singer data
+
+## 4.1 Use purrr to map latitude and longitude into human readable information on the band’s origin places.
+For this part, we need to enable the google API key:
+```{r}
+register_google("AIzaSyCofrdT-5MetLRbrW9Rt-l50gAeEr3eCNY")
+```
+
+First, take a look at singer_locations data frame.
+```{r}
+str(singer_locations)
+knitr::kable(head(singer_locations))
+```
+
+```{r}
+singer_trunc <- singer_locations %>% 
+  select(latitude, longitude, city)
+knitr::kable(head(singer_trunc, 10))
+```
+
+We can see that some of the tracks have missing data. Filter those tracks which miss city, the latitude and longitude:
+```{r}
+singer_trunc <- singer_trunc %>% filter(!is.na(latitude) & !is.na(longitude) & !is.na(city))
+knitr::kable(head(singer_trunc, 10))
+```
+
+Let's take a look at singer_trunc first.
+```{r}
+str(singer_trunc)
+```
+
+After taking a look at singer_trunc data frame, it has 4129 rows. For the demo of ggmap, we will work on the first 20 sets of data instead.
+```{r}
+singer_trunc_20 <- singer_trunc %>% 
+  slice(1:20)
+
+# use revgeocode to get city location by given longitude and latitude
+ggmap_res <- mapply(FUN = function(lon, lat) { 
+  revgeocode(c(lon, lat), output = "address") 
+  }, 
+  singer_trunc_20$longitude, singer_trunc_20$latitude
+  )
+```
+
+Take a look at first 10 rows of resulting location list by ggmap:
+```{r}
+head(ggmap_res, 10)
+```
+
+The table for comparing cities from singer_location and ggmap extracted cities with longitude and latitude can be generated.
+```{r}
+knitr::kable(cbind(ggmap_res, singer_trunc_20$city),
+             col.names = c("ggmap extracted cities", "cities in singer_location"),
+             align = "c")
+```
+
+
+## 4.2 Try to check whether the place in city corresponds to the information you retrieved.
+
+`grepl()` can be used to check if the first string contains the second string
+```{r}
+# apply grepl() over the list
+mapply(grepl, singer_trunc_20$city, ggmap_res, fixed = TRUE)
+```
+
+From the result, we can see some of them are not matching each other. However, take a closer look at two city lists, the format are not actually the same for ggmap and singer_locations. To determine if the city names match or not, changing format is necessary.
+
+```{r}
+# create function for split string by word for given list
+split_word <- function(list) {
+   r <- str_split(list, pattern = boundary("word"))
+  return(r)
+}
+
+ggmap_city <- split_word(ggmap_res)
+singer_city <- split_word(singer_trunc_20$city)
+
+mapply(intersect, singer_city, ggmap_city) %>% 
+  # get the length of intersection
+  lapply(length) %>% 
+  # if length of intersection is 0, then they don't match
+  map(function(len) len > 0)
+```
+
+From the result, we can see that most of the result match now. However, for 4th row, ggmap returns Z. H. Confair Memorial Hwy, Howard, PA 16841 USA	 and in singer_locations it shows Pennsylvania instead. The same failure appears for 18th row. To match those ones, all the states' names need to be matched with their abbreviations. 
+
+
+## 4.3 If you still have time, you can go visual
+```{r Part 4-3}
+singer_trunc_20 %>%  
+  leaflet()  %>%   
+  addTiles() %>%  
+  addCircles(lng = singer_trunc_20$longitude,
+             lat = singer_trunc_20$latitude,
+             popup = singer_trunc_20$city
+            )
+```
+With the `popup` option, when the circles are clicked, the corresponding city name will pop up on the map.
