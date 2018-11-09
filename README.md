@@ -1,7 +1,7 @@
 # STAT 545 hw06 for yihaoz
 
 
-Please view the final html output [hw06.html](https://htmlpreview.github.io/?https://github.com/STAT545-UBC-students/hw06-yihaoz/blob/master/hw06.html). 
+Please view the final html output [preview of HTML](https://rawcdn.githack.com/STAT545-UBC-students/hw06-yihaoz/d82d7bd4537d685b34f1efde1d70c0f9853898a8/hw06.html). 
 
 All other files:
 
